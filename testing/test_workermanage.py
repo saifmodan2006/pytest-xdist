@@ -569,3 +569,79 @@ def test_warning_serialization_tweaked_module() -> None:
     # __module__ cannot be found!
     with pytest.raises(ModuleNotFoundError):
         unserialize_warning_message(data)
+
+
+def test_process_from_remote_forwards_serialized_warning(config: pytest.Config) -> None:
+    class DummyManager:
+        testrunuid = "testrun"
+        specs = [execnet.XSpec("popen")]
+
+    class DummyGateway:
+        id = "gw0"
+        spec = execnet.XSpec("popen")
+
+    events: list[tuple[str, dict[str, object]]] = []
+    node = workermanage.WorkerController(
+        nodemanager=DummyManager(),  # type: ignore[arg-type]
+        gateway=DummyGateway(),  # type: ignore[arg-type]
+        config=config,
+        putevent=events.append,
+    )
+    warning_message_data: dict[str, object] = {"sentinel": True}
+
+    node.process_from_remote(
+        (
+            "warning_recorded",
+            {
+                "warning_message_data": warning_message_data,
+                "when": "runtest",
+                "nodeid": "test_example.py::test_example",
+                "location": None,
+            },
+        )
+    )
+
+    assert events == [
+        (
+            "warning_recorded",
+            {
+                "warning_message_data": warning_message_data,
+                "when": "runtest",
+                "nodeid": "test_example.py::test_example",
+                "location": None,
+            },
+        )
+    ]
+
+
+def test_dsession_deserializes_forwarded_warning(config: pytest.Config) -> None:
+    from xdist.dsession import DSession
+
+    with pytest.warns(UserWarning) as recorded_warnings:
+        warnings.warn("hello", UserWarning)
+    data = serialize_warning_message(recorded_warnings[0])
+    session = DSession(config)
+    received: list[warnings.WarningMessage] = []
+
+    class Recorder:
+        @pytest.hookimpl
+        def pytest_warning_recorded(
+            self,
+            warning_message: warnings.WarningMessage,
+            when: str,
+            nodeid: str,
+            location: tuple[str, int, str] | None,
+        ) -> None:
+            received.append(warning_message)
+
+    config.pluginmanager.register(Recorder())
+    session.worker_warning_recorded(
+        warning_message_data=data,
+        when="runtest",
+        nodeid="test_example.py::test_example",
+        location=None,
+    )
+
+    assert len(received) == 1
+    assert isinstance(received[0].message, UserWarning)
+    assert str(received[0].message) == "hello"
