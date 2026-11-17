@@ -454,12 +454,10 @@ class WorkerController:
                     fslocation=kwargs["nodeid"],
                 )
             elif eventname == "warning_recorded":
-                warning_message = unserialize_warning_message(
-                    kwargs["warning_message_data"]
-                )
+                
                 self.notify_inproc(
                     eventname,
-                    warning_message=warning_message,
+                    warning_message_data=kwargs["warning_message_data"],
                     when=kwargs["when"],
                     nodeid=kwargs["nodeid"],
                     location=kwargs["location"],
